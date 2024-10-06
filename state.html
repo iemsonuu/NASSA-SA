@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NASA Satellite Location Finder</title>
+
+    <!-- Include Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/satellite.js/4.0.0/satellite.min.js"></script>
+
+    <style>
+        body {
+            background: url('https://images.unsplash.com/photo-1540906360685-1ecf7e97cfb6') no-repeat center center fixed;
+            background-size: cover;
+            font-family: 'Roboto', sans-serif;
+            color: white;
+            background-image: url("Downloads/bg.webp");
+        }
+
+        .container {
+            margin-top: 50px;
+        }
+
+        .card {
+            background-color: rgba(0, 0, 0, 0.8);
+            color: white;
+            border: none;
+        }
+
+        .card-header {
+            text-align: center;
+        }
+
+        .loading-spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-left-color: white;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: auto;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        #geminiResponse {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            margin-top: 15px;
+            padding: 15px;
+            border-radius: 8px;
+            background-color: rgba(255, 255, 255, 0.1);
+            min-height: 100px;
+            text-align: center;
+            font-size: 1.1em;
+            color: #f6f7f7;
+            box-shadow: 0 5px 15px rgba(0, 212, 255, 0.2);
+        }
+
+        #geminiResponse.error {
+            background-color: rgba(255, 0, 0, 0.1);
+            color: #979a9f;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <div class="card mb-5">
+            <div class="card-header">
+                <h2>NASA Satellite Location Finder</h2>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label for="satelliteName" class="form-label">Enter Satellite Name</label>
+                    <input type="text" id="satelliteName" class="form-control" placeholder="e.g. ISS ">
+                </div>
+                <button class="btn btn-primary w-100" onclick="findSatellite()">Find Location</button>
+
+                <div id="loading" class="text-center mt-4" style="display:none;">
+                    <div class="loading-spinner"></div>
+                    <p>Fetching satellite location...</p>
+                </div>
+
+                <div id="result" class="mt-4">
+                    <!-- Result will be displayed here -->
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h2 class="text-center"> Satellite Information</h2>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <input type="text" id="geminiPromptBox" placeholder="Enter satellite name..." class="form-control">
+                </div>
+                <button onclick="searchGemini()" class="btn btn-primary w-100">Find Satellite Info</button>
+                <div id="geminiResponse" class="mt-4"></div>
+            </div>
+        </div>
+    </div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "@google/generative-ai": "https://esm.run/@google/generative-ai"
+        }
+    }
+</script>
+
+    <script type="module">
+        import { GoogleGenerativeAI } from "@google/generative-ai";
+
+        const API_KEY = "AIzaSyBp9IlYevAkvbRZoM_PKYnQCjzBJocOyGI"; // Replace with your actual key
+        const genAI = new GoogleGenerativeAI(API_KEY);
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+        // NASA satellites with their NORAD IDs
+        const satellites = {
+            "ISS": 25544,
+            "Hubble Space Telescope": 20580,
+            "Landsat 8": 39084,
+            "STEREO-A": 29272,
+            "STEREO-B": 29273,
+            "TESS": 43229,
+            "OSIRIS-REx": 43231,
+            "CloudSat": 28556,
+            "GPM": 40258,
+            "ICESat-2": 43447,
+            "Parker Solar Probe": 43229,
+        };
+
+        window.findSatellite = async function () { // Ensure findSatellite is globally accessible
+            const satelliteName = document.getElementById('satelliteName').value.trim();
+            const resultElement = document.getElementById('result');
+            const loadingElement = document.getElementById('loading');
+
+            if (!satelliteName || !(satelliteName in satellites)) {
+                resultElement.innerHTML = '<p class="text-danger">Satellite not found. Please enter a valid name.</p>';
+                return;
+            }
+
+            const noradId = satellites[satelliteName];
+            const tleUrl = `https://celestrak.com/NORAD/elements/gp.php?CATNR=${noradId}&FORMAT=tle`;
+
+            // Show loading spinner
+            loadingElement.style.display = 'block';
+            resultElement.innerHTML = '';
+
+            try {
+                // Fetch TLE data
+                const response = await fetch(tleUrl);
+                const tleText = await response.text();
+                const tleLines = tleText.trim().split('\n');
+
+                if (tleLines.length < 3) {
+                    throw new Error("Invalid TLE data.");
+                }
+
+                const tleLine1 = tleLines[1];
+                const tleLine2 = tleLines[2];
+
+                // Get satellite position
+                const position = getSatellitePosition(tleLine1, tleLine2);
+                const { latitude, longitude, altitude } = position;
+
+                resultElement.innerHTML =
+                    `<h4>Current Location of ${satelliteName}:</h4>
+                <p><strong>Latitude:</strong> ${latitude.toFixed(2)}°</p>
+                <p><strong>Longitude:</strong> ${longitude.toFixed(2)}°</p>
+                <p><strong>Altitude:</strong> ${altitude.toFixed(2)} km</p>`;
+            } catch (error) {
+                console.error("Error fetching satellite data:", error);
+                resultElement.innerHTML = '<p class="text-danger">Error fetching satellite data.</p>';
+            } finally {
+                // Hide loading spinner
+                loadingElement.style.display = 'none';
+            }
+        };
+
+        // Function to get the satellite's current position using satellite.js
+        function getSatellitePosition(tleLine1, tleLine2) {
+            const satrec = satellite.twoline2satrec(tleLine1, tleLine2);
+            const now = new Date();
+
+            // Get satellite position in space at current time
+            const positionAndVelocity = satellite.propagate(satrec, now);
+            const positionEci = positionAndVelocity.position;
+
+            // Calculate geodetic coordinates (latitude, longitude, altitude) from ECI position
+            const gmst = satellite.gstime(now);
+            const positionGd = satellite.eciToGeodetic(positionEci, gmst);
+
+            // Convert radians to degrees
+            const latitude = satellite.degreesLat(positionGd.latitude);
+            const longitude = satellite.degreesLong(positionGd.longitude);
+            const altitude = positionGd.height / 1000; // Convert meters to kilometers
+
+            return { latitude, longitude, altitude };
+        }
+
+        window.searchGemini = async function () { // Ensure searchGemini is globally accessible
+            const satelliteName = document.getElementById('geminiPromptBox').value.trim();
+            const geminiResponseElement = document.getElementById('geminiResponse');
+
+            if (!satelliteName) {
+                alert("Please enter a satellite name");
+                return;
+            }
+
+            geminiResponseElement.innerText = "Fetching satellite information...";
+
+            try {
+                const result = await model.generateContent(satelliteName);
+                const generatedText = result.response.text();
+                geminiResponseElement.innerHTML = `<strong>Information:</strong><br>${generatedText}`;
+            } catch (error) {
+                console.error("Error fetching satellite info:", error);
+                geminiResponseElement.innerText = `Error: ${error.message}`;
+                geminiResponseElement.classList.add('error');
+            }
+        };
+    </script>
+
+</body>
+
+</html>
